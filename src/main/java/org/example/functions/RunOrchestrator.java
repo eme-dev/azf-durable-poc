@@ -10,6 +10,7 @@ import com.microsoft.durabletask.azurefunctions.DurableClientContext;
 import com.microsoft.durabletask.azurefunctions.DurableClientInput;
 import com.microsoft.durabletask.azurefunctions.DurableOrchestrationTrigger;
 import org.example.functions.activity.UserActivities;
+import org.example.functions.model.ActivityResult;
 
 /**
  * Please follow the below steps to run this durable function sample
@@ -49,7 +50,7 @@ public class RunOrchestrator {
         UserActivities.RegisterUserRequest req = new UserActivities.RegisterUserRequest();
         req.firstName = "Ana";
         req.lastName = "Pérez";
-        req.email = "ana@correo.com";
+        req.email = "ana2@correo.com";
 
         try {
         result += ctx.callActivity("Capitalize", "Tokyo", String.class).await() + ", ";
@@ -57,16 +58,23 @@ public class RunOrchestrator {
         result += ctx.callActivity("Capitalize", "Seattle", String.class).await() + ", ";
         result += ctx.callActivity("Capitalize", "Austin", String.class).await();
         result += ctx.callActivity("validate", "Austin", String.class).await();
-        UserActivities.RegisterUserResult r = ctx.callActivity("RegisterUser", req, UserActivities.RegisterUserResult.class).await();
+            ActivityResult  r = ctx.callActivity("RegisterUser", req, ActivityResult.class).await();
 
-        if (!r.success) {
-              ctx.setCustomStatus("No se pudo registrar: " + r.message);
-             throw new RuntimeException(r.message);
-         }
+            if (!r.success && "DUPLICATE".equals(r.code)) {
+                throw new DuplicateEmailException(r.message);
+            }
+
+            if (!r.success) {
+                throw new RuntimeException("RegisterUser falló: " + r.code + " - " + r.message);
+            }
+
 
 
         return result;
-    } catch (TaskFailedException ex) {
+    } catch (DuplicateEmailException e) {
+            throw  e;
+        }
+        catch (TaskFailedException ex) {
         ctx.setCustomStatus("Falló una activity: " + ex.getMessage());
         throw ex; // recomendado si el error debe marcar la instancia como Failed
     }

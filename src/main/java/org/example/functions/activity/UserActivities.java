@@ -3,6 +3,7 @@ package org.example.functions.activity;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.durabletask.azurefunctions.DurableActivityTrigger;
+import org.example.functions.model.ActivityResult;
 
 import java.sql.*;
 
@@ -14,38 +15,15 @@ public class UserActivities {
         public String email;
     }
 
-    public static class RegisterUserResult {
-        public boolean success;
-        public String message;
-        public Long userId;
 
-        public static RegisterUserResult ok(long id) {
-            RegisterUserResult r = new RegisterUserResult();
-            r.success = true;
-            r.userId = id;
-            r.message = "Usuario registrado";
-            return r;
-        }
-
-        public static RegisterUserResult fail(String msg) {
-            RegisterUserResult r = new RegisterUserResult();
-            r.success = false;
-            r.message = msg;
-            return r;
-        }
-    }
 
     @FunctionName("RegisterUser")
-    public RegisterUserResult registerUser(
+    public ActivityResult registerUser(
             @DurableActivityTrigger(name = "input") RegisterUserRequest input,
             final ExecutionContext context) {
 
         try {
-            // Validaciones básicas
-            if (input == null) return RegisterUserResult.fail("Input es null");
-            if (isBlank(input.firstName)) return RegisterUserResult.fail("firstName es requerido");
-            if (isBlank(input.lastName))  return RegisterUserResult.fail("lastName es requerido");
-            if (isBlank(input.email))     return RegisterUserResult.fail("email es requerido");
+
 
             String email = input.email.trim().toLowerCase();
 
@@ -76,7 +54,7 @@ public class UserActivities {
                     rs.next();
                     long id = rs.getLong(1);
                     context.getLogger().info("Usuario creado id=" + id + " email=" + email);
-                    return RegisterUserResult.ok(id);
+                    return ActivityResult.ok("Usuario registrado (id=" + id + ")");
                 }
             }
 
@@ -86,16 +64,18 @@ public class UserActivities {
             int code = ex.getErrorCode();
             if (code == 2627 || code == 2601) {
                 context.getLogger().warning("Email duplicado: " + ex.getMessage());
-                return RegisterUserResult.fail("El correo ya está registrado");
+                return ActivityResult.fail("DUPLICATE", "El correo ya está registrado");
             }
 
             context.getLogger().severe("SQL error (" + code + "): " + ex.getMessage());
-            return RegisterUserResult.fail("Error de base de datos");
+            //return RegisterUserResult.fail("Error de base de datos");
+            throw new RuntimeException( ex);
 
         } catch (Exception ex) {
 
             context.getLogger().severe("Error registrando usuario: " + ex.getMessage());
-            return RegisterUserResult.fail("Error interno");
+            //return RegisterUserResult.fail("Error interno");
+            throw new RuntimeException(ex);
         }
     }
 
