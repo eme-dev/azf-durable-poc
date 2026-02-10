@@ -2,6 +2,9 @@ package org.example.functions;
 
 import com.microsoft.azure.functions.annotation.*;
 import com.microsoft.azure.functions.*;
+
+import java.sql.*;
+import java.time.Duration;
 import java.util.*;
 
 import com.microsoft.durabletask.*;
@@ -53,30 +56,30 @@ public class RunOrchestrator {
         req.email = "ana2@correo.com";
 
         try {
-        result += ctx.callActivity("Capitalize", "Tokyo", String.class).await() + ", ";
-        result += ctx.callActivity("Capitalize", "London", String.class).await() + ", ";
-        result += ctx.callActivity("Capitalize", "Seattle", String.class).await() + ", ";
-        result += ctx.callActivity("Capitalize", "Austin", String.class).await();
-        result += ctx.callActivity("validate", "Austin", String.class).await();
+            RetryPolicy retryPolicy = new RetryPolicy(
+                    3,
+                    Duration.ofSeconds(2)
+            ).setBackoffCoefficient(1.0);
+
+            TaskOptions options = new TaskOptions(retryPolicy);
+
+            result += ctx.callActivity("Capitalize", "Austin",options, String.class).await() + ", ";
+             ctx.callActivity("Validate", req , ActivityResult.class).await() ;
             ActivityResult  r = ctx.callActivity("RegisterUser", req, ActivityResult.class).await();
 
             if (!r.success && "DUPLICATE".equals(r.code)) {
                 throw new DuplicateEmailException(r.message);
             }
 
-            if (!r.success) {
-                throw new RuntimeException("RegisterUser falló: " + r.code + " - " + r.message);
-            }
-
-
-
+           
         return result;
-    } catch (DuplicateEmailException e) {
-            throw  e;
+    } catch (DuplicateEmailException ex) {
+            ctx.callActivity("Log", ex.getMessage() + " taskName: Duplicate"  , Void.class).await();
+            throw ex;
         }
         catch (TaskFailedException ex) {
-        ctx.setCustomStatus("Falló una activity: " + ex.getMessage());
-        throw ex; // recomendado si el error debe marcar la instancia como Failed
+            ctx.callActivity("Log", ex.getMessage() + " taskName:" + ex.getTaskName() , Void.class).await();
+        throw ex;
     }
     }
 
@@ -91,11 +94,53 @@ public class RunOrchestrator {
         //throw new ArithmeticException("error artimetico");
         return name.toUpperCase();
     }
-    @FunctionName("validate")
-    public String validate(
-            @DurableActivityTrigger(name = "name") String name,
+    @FunctionName("Validate")
+    public ActivityResult  validate(
+            @DurableActivityTrigger(name = "req") UserActivities.RegisterUserRequest  req,
             final ExecutionContext context) {
-        context.getLogger().info("Capitalizing: " + name);
-        return "success";
+
+        /*String raw = email;
+        String normalized = email == null ? "" : email.replace("\"", "").trim();
+         */
+        String email = req.email;
+
+        context.getLogger().info("Validate: email=" + email);
+
+        final String sql = "SELECT * FROM [dbo].[Users] WHERE Email = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, email);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    context.getLogger().info("Validate: ya existe (DUPLICATE) email=" + email);
+                    return ActivityResult.fail("DUPLICATE", "Ya procesado: " + email);
+                }
+            }
+
+            context.getLogger().info("Validate: no existe (OK) email=" + email);
+            return ActivityResult.ok("No existe, continuar: " + email);
+
+        } catch (SQLException e) {
+            context.getLogger().severe("Validate DB error email=" + email + " err=" + e.getMessage());
+
+            // Opción A (recomendada): lanzar excepción => Durable retry (si configuraste RetryPolicy)
+            throw new RuntimeException("DB_ERROR en Validate: " + e.getMessage(), e);
+
+            // Opción B (si NO quieres retry):
+            // return ActivityResult.fail("DB_ERROR", "DB error en Validate: " + e.getMessage());
+        }
+    }
+
+    private Connection getConnection() throws SQLException {
+        // Usa una App Setting / local.settings.json:
+        // "SQL_CONNECTION_STRING": "jdbc:sqlserver://...;databaseName=...;user=...;password=...;encrypt=true;"
+        String url = System.getenv("SQL_JDBC_URL");
+        if (url == null || url.isBlank()) {
+            throw new SQLException("Falta SQL_CONNECTION_STRING en variables de entorno");
+        }
+        return DriverManager.getConnection(url);
     }
 }

@@ -68,13 +68,11 @@ public class UserActivities {
             }
 
             context.getLogger().severe("SQL error (" + code + "): " + ex.getMessage());
-            //return RegisterUserResult.fail("Error de base de datos");
             throw new RuntimeException( ex);
 
         } catch (Exception ex) {
 
             context.getLogger().severe("Error registrando usuario: " + ex.getMessage());
-            //return RegisterUserResult.fail("Error interno");
             throw new RuntimeException(ex);
         }
     }
