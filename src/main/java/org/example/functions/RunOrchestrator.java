@@ -53,7 +53,7 @@ public class RunOrchestrator {
         UserActivities.RegisterUserRequest req = new UserActivities.RegisterUserRequest();
         req.firstName = "Ana";
         req.lastName = "Pérez";
-        req.email = "ana2@correo.com";
+        req.email = "ana3@correo.com";
 
         try {
             RetryPolicy retryPolicy = new RetryPolicy(
